@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import subprocess, platform, sys, os, math, locale
+import subprocess, platform, sys, os, math, locale, tkinter
 from pathlib import Path
 encoding = locale.getencoding()
 lang, _ = locale.getlocale()
@@ -9,4 +9,20 @@ portuguese = ["português", "portuguese", "portugiesisch"]
 english = ["inglês", "english", "englisch"]
 german = ["alemão", "german", "deutsch"]
 filesystems = ["ext4", "brtfs", "gpfs"]
+boas_vindas = ["Bem-vindo ao assistente de instalação do Bit-OS!", "Welcome to the Bit-OS Install Wizard!", "Willkommen zum Bit-OS Installationsassistenten!"]
 nproc = os.cpu_count()
+
+window = tkinter.Tk()
+window.title("Bit-OS Install Wizard")
+window.geometry("400x300")
+if os.getuid() != 0:
+    aviso = tkinter.Label(window, text="This installer must be run as root to work properly.")
+    aviso.pack()
+    botao = tkinter.Button(window, text="Exit", command=window.destroy)
+    botao.pack()
+elif os.getuid() == 0:
+    welcommingMessage = tkinter.Label(window, text="Welcome to the Bit-OS Install Wizard!")
+    welcommingMessage.pack()
+    botao = tkinter.Button(window, text="Continue", command=window.destroy)
+    botao.pack()
+window.mainloop()

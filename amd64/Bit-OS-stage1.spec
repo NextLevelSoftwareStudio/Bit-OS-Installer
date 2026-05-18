@@ -12,4 +12,4 @@ cflags:
 cxxflags: 
 envscript: 
 livecd/use: 
-livecd/packages:
+livecd/packages:x11-base/xorg-server x11-apps/xinit
