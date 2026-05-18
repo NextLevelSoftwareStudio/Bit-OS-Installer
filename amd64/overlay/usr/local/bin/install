@@ -21,6 +21,7 @@ filesystems = ["ext4", "btrfs", "gpfs"]
 nproc = os.cpu_count()
 indice_mensagem = 0
 available_languages = [t("Portuguese"), t("English"), t("German")]
+portagerequirements = []
 #
 
 
@@ -31,6 +32,8 @@ def cleanwindow(window):
         widget.destroy()
 def checkingrequirements():
     cleanwindow(window)
+    global LANGUAGE
+    LANGUAGE = language_var.get() # Language for Bit-OS
     if cpu_architecture != "x86_64":
         label = tkinter.Label(window, text=t("Your CPU architecture is not supported."))
         label.pack()
@@ -43,13 +46,12 @@ def choosinglanguage():
     label.pack()
     # Dropdown menu for language selection
     language_names = list(available_languages)
+    global language_var
     language_var = tkinter.StringVar(window)
     if language_names:
         language_var.set(language_names[0])
     dropdown = tkinter.OptionMenu(window, language_var, *language_names)
     dropdown.pack()
-    global LANGUAGE
-    LANGUAGE = language_var.get() # Language for Bit-OS
     # Button to confirm language selection
     button = tkinter.Button(window, text=t("Continue"), command=checkingrequirements)
     button.pack()
