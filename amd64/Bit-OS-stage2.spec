@@ -1,4 +1,4 @@
-subarch:
+subarch: amd64
 target: livecd-stage2
 version_stamp: 
 rel_type: default

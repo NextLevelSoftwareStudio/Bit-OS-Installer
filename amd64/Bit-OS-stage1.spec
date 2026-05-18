@@ -1,6 +1,6 @@
-subarch: 
+subarch: amd64
 target: livecd-stage1
-version_stamp:
+version_stamp: Bit-OS
 rel_type: default
 profile: 
 snapshot:
