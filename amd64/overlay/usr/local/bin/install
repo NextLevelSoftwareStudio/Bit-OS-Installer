@@ -1,16 +1,39 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Imports
 import subprocess, platform, sys, os, math, locale, tkinter
 from pathlib import Path
+#
+
+
+# Variables
 encoding = locale.getencoding()
 lang, _ = locale.getlocale()
 cpu_architecture = platform.machine()
 portuguese = ["português", "portuguese", "portugiesisch"]
 english = ["inglês", "english", "englisch"]
 german = ["alemão", "german", "deutsch"]
-filesystems = ["ext4", "brtfs", "gpfs"]
-boas_vindas = ["Bem-vindo ao assistente de instalação do Bit-OS!", "Welcome to the Bit-OS Install Wizard!", "Willkommen zum Bit-OS Installationsassistenten!"]
+filesystems = ["ext4", "btrfs", "gpfs"]
+welcomminglist = ["Bem-vindo ao assistente de instalação do Bit-OS!", "Welcome to the Bit-OS Install Wizard!", "Willkommen zum Bit-OS Installationsassistenten!"]
 nproc = os.cpu_count()
+indice_mensagem = 0
+available_languages = [portuguese, english, german]
+#
+
+
+# Functions
+def cleanwindow(window):
+    for widget in window.winfo_children():
+        widget.destroy()
+def rotacionar_boas_vindas():
+    global indice_mensagem
+    welcommingMessage.config(text=welcomminglist[indice_mensagem])
+    indice_mensagem = (indice_mensagem + 1) % len(welcomminglist)
+    window.after(2500, rotacionar_boas_vindas)
+def choosinglanguage():
+    
+#
+
 
 window = tkinter.Tk()
 window.title("Bit-OS Install Wizard")
@@ -21,8 +44,9 @@ if os.getuid() != 0:
     botao = tkinter.Button(window, text="Exit", command=window.destroy)
     botao.pack()
 elif os.getuid() == 0:
-    welcommingMessage = tkinter.Label(window, text="Welcome to the Bit-OS Install Wizard!")
+    welcommingMessage = tkinter.Label(window, text="", font=("Arial", 11), pady=30, wraplength=350)
     welcommingMessage.pack()
-    botao = tkinter.Button(window, text="Continue", command=window.destroy)
+    rotacionar_boas_vindas()
+    botao = tkinter.Button(window, text="Continue", command=choosinglanguage)
     botao.pack()
 window.mainloop()
