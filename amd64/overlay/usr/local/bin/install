@@ -6,6 +6,10 @@ from pathlib import Path
 #
 
 
+def traduzir(msg):
+    pass
+
+
 # Variables
 encoding = locale.getencoding()
 lang, _ = locale.getlocale()
@@ -14,23 +18,28 @@ portuguese = ["português", "portuguese", "portugiesisch"]
 english = ["inglês", "english", "englisch"]
 german = ["alemão", "german", "deutsch"]
 filesystems = ["ext4", "btrfs", "gpfs"]
-welcomminglist = ["Bem-vindo ao assistente de instalação do Bit-OS!", "Welcome to the Bit-OS Install Wizard!", "Willkommen zum Bit-OS Installationsassistenten!"]
 nproc = os.cpu_count()
 indice_mensagem = 0
-available_languages = [portuguese, english, german]
+available_languages = [traduzir("portuguese"), traduzir("english"), traduzir("german")]
 #
 
 
 # Functions
+
 def cleanwindow(window):
     for widget in window.winfo_children():
         widget.destroy()
-def rotacionar_boas_vindas():
-    global indice_mensagem
-    welcommingMessage.config(text=welcomminglist[indice_mensagem])
-    indice_mensagem = (indice_mensagem + 1) % len(welcomminglist)
-    window.after(2500, rotacionar_boas_vindas)
 def choosinglanguage():
+    cleanwindow(window)
+    label = tkinter.Label(window, text=traduzir("Choose your language:"))
+    label.pack()
+
+    language_names = [lang[0] for lang in available_languages]
+    language_var = tkinter.StringVar(window)
+    if language_names:
+        language_var.set(language_names[0])
+    dropdown = tkinter.OptionMenu(window, language_var, *language_names)
+    dropdown.pack()
     
 #
 
@@ -39,14 +48,13 @@ window = tkinter.Tk()
 window.title("Bit-OS Install Wizard")
 window.geometry("400x300")
 if os.getuid() != 0:
-    aviso = tkinter.Label(window, text="This installer must be run as root to work properly.")
+    aviso = tkinter.Label(window, text=traduzir("This program must be run as root!"))
     aviso.pack()
-    botao = tkinter.Button(window, text="Exit", command=window.destroy)
+    botao = tkinter.Button(window, text=traduzir("Exit"), command=window.destroy)
     botao.pack()
 elif os.getuid() == 0:
-    welcommingMessage = tkinter.Label(window, text="", font=("Arial", 11), pady=30, wraplength=350)
+    welcommingMessage = tkinter.Label(window, text=traduzir("Welcome to Bit-OS Install Wizard!"))
     welcommingMessage.pack()
-    rotacionar_boas_vindas()
-    botao = tkinter.Button(window, text="Continue", command=choosinglanguage)
+    botao = tkinter.Button(window, text=traduzir("Continue"), command=choosinglanguage)
     botao.pack()
 window.mainloop()
