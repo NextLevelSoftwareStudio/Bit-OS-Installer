@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Imports
-import subprocess, platform, sys, os, math, locale, tkinter, time
+import subprocess, platform, sys, os, math, locale, tkinter, time, threading
 from pathlib import Path
 #
 
@@ -25,11 +25,23 @@ portagerequirements = ["net-misc/wget", "dev-vcs/git"]
 #
 
 
+## Valores ideais para o portage
+portage_cores = math.ceil((cpu_architecture / 100) * 75) #representa 75% dos nucleos lógicos
+#
+
+
 # Functions
 
 def cleanwindow(window):
     for widget in window.winfo_children():
         widget.destroy()
+def progressbar_start(window, total_steps):
+    def bar():
+        pass # Placeholder for the actual progress bar implementation
+    thread = threading.Thread(target=bar)
+    thread.start()
+def progressbar_add():
+    pass # Placeholder for the actual progress bar implementation
 def checkingrequirements():
     cleanwindow(window)
     global LANGUAGE
@@ -56,7 +68,7 @@ def checkingrequirements():
             if result.stdout.strip() == "":
                 missing.append(requirement)
                 window.update_idletasks()
-        if len(missing) > 0:
+        if len(missing) > 0:# If there are missing packages, install them
             processed = tkinter.StringVar()
             processed.set("0")
             label_text = tkinter.StringVar()
@@ -67,7 +79,12 @@ def checkingrequirements():
             label = tkinter.Label(window, textvariable=label_text)
             label.pack()
             for package in missing:
-                subprocess.run(["emerge"])
+                try:
+                    subprocess.run(["emerge", "--verbose", package])
+                except subprocess.CalledProcessError:
+                    pass
+                processed.set(str(int(processed.get()) + 1))
+                window.update_idletasks()
     
 def choosinglanguage():
     cleanwindow(window)
