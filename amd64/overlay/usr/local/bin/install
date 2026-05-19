@@ -21,7 +21,7 @@ filesystems = ["ext4", "btrfs", "gpfs"]
 nproc = os.cpu_count()
 indice_mensagem = 0
 available_languages = [t("Portuguese"), t("English"), t("German")]
-portagerequirements = []
+portagerequirements = ["net-misc/wget", "dev-vcs/git"]
 #
 
 
@@ -35,10 +35,21 @@ def checkingrequirements():
     global LANGUAGE
     LANGUAGE = language_var.get() # Language for Bit-OS
     if cpu_architecture != "x86_64":
-        label = tkinter.Label(window, text=t("Your CPU architecture is not supported."))
+        label = tkinter.Label(window, text=t(f"This installer isn't made for {cpu_architecture} CPUs."))
         label.pack()
         button = tkinter.Button(window, text=t("Exit"), command=window.destroy)
         button.pack()
+    elif cpu_architecture == "x86_64":
+        processed = tkinter.StringVar()
+        processed.set(0)
+        label = tkinter.Label(window, text=t(f"Checking for required packages... ({processed.get()}/{len(portagerequirements)})"))
+        label.pack()
+        missing = []
+        for requirement in portagerequirements:
+            result = subprocess.run(["qlist", "-I", "-e", requirement], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            processed.set(int(processed.get()) + 1)
+            if result.stdout.strip() == "":
+                missing.append(requirement)
     
 def choosinglanguage():
     cleanwindow(window)
