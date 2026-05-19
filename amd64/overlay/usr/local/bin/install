@@ -41,15 +41,33 @@ def checkingrequirements():
         button.pack()
     elif cpu_architecture == "x86_64":
         processed = tkinter.StringVar()
-        processed.set(0)
-        label = tkinter.Label(window, text=t(f"Checking for required packages... ({processed.get()}/{len(portagerequirements)})"))
+        processed.set("0")
+        label_text = tkinter.StringVar()
+        def update_label_text(*args):
+            label_text.set(t(f"Checking for required packages... ({processed.get()}/{len(portagerequirements)})"))
+        processed.trace_add("write", update_label_text)
+        update_label_text()
+        label = tkinter.Label(window, textvariable=label_text)
         label.pack()
         missing = []
         for requirement in portagerequirements:
             result = subprocess.run(["qlist", "-I", "-e", requirement], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            processed.set(int(processed.get()) + 1)
+            processed.set(str(int(processed.get()) + 1))
             if result.stdout.strip() == "":
                 missing.append(requirement)
+                window.update_idletasks()
+        if len(missing) > 0:
+            processed = tkinter.StringVar()
+            processed.set("0")
+            label_text = tkinter.StringVar()
+            def update_label_text(*args):
+                label_text.set(t(f"Installing missing packages... ({processed.get()}/{len(missing)})"))
+            processed.trace_add("write", update_label_text)
+            update_label_text()
+            label = tkinter.Label(window, textvariable=label_text)
+            label.pack()
+            for package in missing:
+                subprocess.run(["emerge"])
     
 def choosinglanguage():
     cleanwindow(window)
