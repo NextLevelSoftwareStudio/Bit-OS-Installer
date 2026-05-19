@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Imports
-import subprocess, platform, sys, os, math, locale, tkinter, time, threading
+import subprocess, platform, sys, os, math, locale, tkinter, time, threading, psutil
 from pathlib import Path
+from tkinter import ttk
 #
 
 
@@ -22,11 +23,12 @@ nproc = os.cpu_count()
 indice_mensagem = 0
 available_languages = [t("Portuguese"), t("English"), t("German")]
 portagerequirements = ["net-misc/wget", "dev-vcs/git"]
+swapfilesize =  # Size of the swapfile in GB
 #
 
 
 ## Valores ideais para o portage
-portage_cores = math.ceil((cpu_architecture / 100) * 75) #representa 75% dos nucleos lógicos
+portage_cores = math.ceil((nproc / 100) * 75) #representa 75% dos nucleos lógicos
 #
 
 
@@ -35,13 +37,7 @@ portage_cores = math.ceil((cpu_architecture / 100) * 75) #representa 75% dos nuc
 def cleanwindow(window):
     for widget in window.winfo_children():
         widget.destroy()
-def progressbar_start(window, total_steps):
-    def bar():
-        pass # Placeholder for the actual progress bar implementation
-    thread = threading.Thread(target=bar)
-    thread.start()
-def progressbar_add():
-    pass # Placeholder for the actual progress bar implementation
+    
 def checkingrequirements():
     cleanwindow(window)
     global LANGUAGE
@@ -62,12 +58,18 @@ def checkingrequirements():
         label = tkinter.Label(window, textvariable=label_text)
         label.pack()
         missing = []
+        # barra de progresso
+        progressbar = ttk.Progressbar(window, orient="horizontal", length=300, mode="determinate", maximum=len(portagerequirements))
+        progressbar.pack()
+
+
         for requirement in portagerequirements:
             result = subprocess.run(["qlist", "-I", "-e", requirement], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             processed.set(str(int(processed.get()) + 1))
             if result.stdout.strip() == "":
                 missing.append(requirement)
                 window.update_idletasks()
+            progressbar["value"] = int(processed.get())
         if len(missing) > 0:# If there are missing packages, install them
             processed = tkinter.StringVar()
             processed.set("0")
