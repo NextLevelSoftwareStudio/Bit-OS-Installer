@@ -1,122 +1,88 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Imports
-import subprocess, platform, sys, os, math, locale, tkinter, time, threading, psutil
-from pathlib import Path
+
+import os
+import math
+import locale
+import platform
+import subprocess
+import threading
+import tkinter as tk
 from tkinter import ttk
-#
-
-
-def t(msg):
-    return msg # Temporary placeholder
-
-
-# Variables
-encoding = locale.getencoding()
-lang, _ = locale.getlocale()
+import portage
 cpu_architecture = platform.machine()
-portuguese = ["português", "portuguese", "portugiesisch"]
-english = ["inglês", "english", "englisch"]
-german = ["alemão", "german", "deutsch"]
-filesystems = ["ext4", "btrfs", "gpfs"]
-nproc = os.cpu_count()
-indice_mensagem = 0
-available_languages = [t("Portuguese"), t("English"), t("German")]
+nproc = os.cpu_count() or 1
+available_languages = ["Portuguese", "English", "German"]
 portagerequirements = ["net-misc/wget", "dev-vcs/git"]
-swapfilesize =  # Size of the swapfile in GB
-#
-
-
-## Valores ideais para o portage
-portage_cores = math.ceil((nproc / 100) * 75) #representa 75% dos nucleos lógicos
-#
-
-
-# Functions
-
-def cleanwindow(window):
-    for widget in window.winfo_children():
+portage_cores = math.ceil((nproc / 100) * 75)
+def cleanwindow(window_obj):
+    for widget in window_obj.winfo_children():
         widget.destroy()
-    
-def checkingrequirements():
-    cleanwindow(window)
+def is_package_installed(cpv):
+    vartree = portage.db[portage.root]["vartree"]
+    return bool(vartree.dbapi.match(cpv))
+def run_requirements_check():
     global LANGUAGE
-    LANGUAGE = language_var.get() # Language for Bit-OS
+    LANGUAGE = language_var.get()
     if cpu_architecture != "x86_64":
-        label = tkinter.Label(window, text=t(f"This installer isn't made for {cpu_architecture} CPUs."))
-        label.pack()
-        button = tkinter.Button(window, text=t("Exit"), command=window.destroy)
-        button.pack()
-    elif cpu_architecture == "x86_64":
-        processed = tkinter.StringVar()
-        processed.set("0")
-        label_text = tkinter.StringVar()
-        def update_label_text(*args):
-            label_text.set(t(f"Checking for required packages... ({processed.get()}/{len(portagerequirements)})"))
-        processed.trace_add("write", update_label_text)
-        update_label_text()
-        label = tkinter.Label(window, textvariable=label_text)
-        label.pack()
-        missing = []
-        # barra de progresso
-        progressbar = ttk.Progressbar(window, orient="horizontal", length=300, mode="determinate", maximum=len(portagerequirements))
-        progressbar.pack()
-
-
-        for requirement in portagerequirements:
-            result = subprocess.run(["qlist", "-I", "-e", requirement], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            processed.set(str(int(processed.get()) + 1))
-            if result.stdout.strip() == "":
-                missing.append(requirement)
-                window.update_idletasks()
-            progressbar["value"] = int(processed.get())
-        if len(missing) > 0:# If there are missing packages, install them
-            processed = tkinter.StringVar()
-            processed.set("0")
-            label_text = tkinter.StringVar()
-            def update_label_text(*args):
-                label_text.set(t(f"Installing missing packages... ({processed.get()}/{len(missing)})"))
-            processed.trace_add("write", update_label_text)
-            update_label_text()
-            label = tkinter.Label(window, textvariable=label_text)
-            label.pack()
-            for package in missing:
-                try:
-                    subprocess.run(["emerge", "--verbose", package])
-                except subprocess.CalledProcessError:
-                    pass
-                processed.set(str(int(processed.get()) + 1))
-                window.update_idletasks()
-    
+        window.after(0, lambda: show_error_and_exit(f"This installer isn't made for {cpu_architecture} CPUs."))
+        return
+    window.after(0, setup_progress_ui)
+def setup_progress_ui():
+    cleanwindow(window)
+    global status_label, progressbar
+    status_label = tk.Label(window, text="Checking for required packages...")
+    status_label.pack(pady=10)
+    progressbar = ttk.Progressbar(window, orient="horizontal", length=300, mode="determinate", maximum=len(portagerequirements))
+    progressbar.pack(pady=5)
+    threading.Thread(target=check_and_install_logic, daemon=True).start()
+def check_and_install_logic():
+    missing = []
+    for idx, requirement in enumerate(portagerequirements, 1):
+        window.after(0, lambda i=idx, req=requirement: update_progress(f"Checking {req}... ({i}/{len(portagerequirements)})", i))
+        if not is_package_installed(requirement):
+            missing.append(requirement)
+    if missing:
+        window.after(0, lambda: progressbar.configure(maximum=len(missing), value=0))
+        for idx, package in enumerate(missing, 1):
+            window.after(0, lambda i=idx, pkg=package: update_progress(f"Installing {pkg}... ({i}/{len(missing)})", i-1)) 
+            try:
+                subprocess.run(["emerge", "--verbose", package], check=True)
+            except subprocess.CalledProcessError:
+                print(f"Failed to install {package}")
+            window.after(0, lambda i=idx: progressbar.configure(value=i))
+    window.after(0, lambda: update_progress("Requirements met! Proceeding...", len(portagerequirements)))
+def update_progress(text, value):
+    status_label.config(text=text)
+    progressbar.configure(value=value)
+def show_error_and_exit(msg):
+    cleanwindow(window)
+    label = tk.Label(window, text=msg)
+    label.pack(pady=20)
+    button = tk.Button(window, text="Exit", command=window.destroy)
+    button.pack()
 def choosinglanguage():
     cleanwindow(window)
-    label = tkinter.Label(window, text=t("Choose your language:"))
-    label.pack()
-    # Dropdown menu for language selection
-    language_names = list(available_languages)
+    label = tk.Label(window, text="Choose your language:")
+    label.pack(pady=10)
     global language_var
-    language_var = tkinter.StringVar(window)
-    if language_names:
-        language_var.set(language_names[0])
-    dropdown = tkinter.OptionMenu(window, language_var, *language_names)
-    dropdown.pack()
-    # Button to confirm language selection
-    button = tkinter.Button(window, text=t("Continue"), command=checkingrequirements)
-    button.pack()
-#
-
-
-window = tkinter.Tk()
+    language_var = tk.StringVar(window)
+    language_var.set(available_languages[0])
+    dropdown = tk.OptionMenu(window, language_var, *available_languages)
+    dropdown.pack(pady=5)
+    button = tk.Button(window, text="Continue", command=run_requirements_check)
+    button.pack(pady=10)
+window = tk.Tk()
 window.title("Bit-OS Install Wizard")
 window.geometry("400x300")
 if os.getuid() != 0:
-    aviso = tkinter.Label(window, text=t("This program must be run as root!"))
-    aviso.pack()
-    botao = tkinter.Button(window, text=t("Exit"), command=window.destroy)
+    aviso = tk.Label(window, text="This program must be run as root!")
+    aviso.pack(pady=20)
+    botao = tk.Button(window, text="Exit", command=window.destroy)
     botao.pack()
-elif os.getuid() == 0:
-    welcommingMessage = tkinter.Label(window, text=t("Welcome to Bit-OS Install Wizard!"))
-    welcommingMessage.pack()
-    botao = tkinter.Button(window, text=t("Continue"), command=choosinglanguage)
+else:
+    welcommingMessage = tk.Label(window, text="Welcome to Bit-OS Install Wizard!")
+    welcommingMessage.pack(pady=20)
+    botao = tk.Button(window, text="Continue", command=choosinglanguage)
     botao.pack()
 window.mainloop()
