@@ -6,33 +6,112 @@ class BitOSInstaller:
     def __init__(self, window):
         self.window = window
         self.window.title("Bit-OS Install Wizard")
-        self.window.geometry("400x350")
+        self.window.geometry("400x450")
         self.cpu_architecture, self.nproc = platform.machine(), os.cpu_count() or 1
         self.portage_cores = max(1, math.ceil((self.nproc / 100) * 75))
         self.available_languages = ["Portuguese", "English", "German"]
+        self.available_countries = ["Portugal", "Brasil", "Angola", "Moçambique", "Outro"]
+        self.available_keymaps = ["pt", "br", "us", "es", "fr"]
+        self.available_timezones = ["Europe/Lisbon", "America/Sao_Paulo", "Africa/Luanda", "Africa/Maputo", "UTC"]
         self.available_filesystems = ["btrfs"]
-        self.portagerequirements = ["net-misc/wget", "dev-vcs/git"]
-        self.selected_language, self.selected_filesystem, self.status_label, self.progressbar = None, None, None, None
+        self.available_profiles = ["minimal", "gaming", "study", "server", "normal"]
+        self.available_envs = ["CLI", "CLI Avançada", "GNOME Puro", "GNOME Modificado", "KDE Puro", "KDE Modificado"]
+        self.available_groups = ["wheel", "users", "audio", "video"]
+        self.portagerequirements = ["net-misc/wget", "dev-vcs/git", "app-portage/cpuid2cpuflags", "net-firewall/nftables", "app-antivirus/clamav"]
+        self.selected_language, self.selected_country, self.selected_hostname = None, None, None
+        self.selected_keymap, self.selected_timezone, self.selected_disk, self.selected_filesystem = None, None, None, None
+        self.want_swapfile, self.swapfile_size, self.selected_profile, self.selected_env, self.root_password = None, "0", None, None, None
+        self.additional_users = []
+        self.status_label, self.progressbar = None, None
         self.check_root_and_start()
     def clean_window(self):
         for widget in self.window.winfo_children(): widget.destroy()
     def is_package_installed(self, cp):
         return bool(portage.db[portage.root]["vartree"].dbapi.cp_list(cp))
+    def get_available_disks(self):
+        try:
+            output = subprocess.check_output(["lsblk", "-dno", "NAME,SIZE"], text=True)
+            return [line.strip() for line in output.splitlines() if line.strip()]
+        except Exception: return ["sda (Unknown Size)"]
     def check_root_and_start(self):
         if os.getuid() != 0:
             tk.Label(self.window, text="This program must be run as root!", fg="red").pack(pady=20)
             tk.Button(self.window, text="Exit", command=self.window.destroy).pack()
         else:
             tk.Label(self.window, text="Welcome to Bit-OS Install Wizard!", font=("Helvetica", 12, "bold")).pack(pady=20)
-            tk.Button(self.window, text="Continue", command=self.choosing_language).pack()
+            tk.Button(self.window, text="Continue", command=self.setup_progress_ui).pack()
+    def setup_progress_ui(self):
+        self.clean_window()
+        self.status_label = tk.Label(self.window, text="Checking for required packages...", wraplength=350)
+        self.status_label.pack(pady=20)
+        self.progressbar = ttk.Progressbar(self.window, orient="horizontal", length=300, mode="determinate")
+        self.progressbar.pack(pady=5)
+        threading.Thread(target=self.check_and_install_logic, daemon=True).start()
+    def update_ui_safely(self, text, progress_value, max_value=None):
+        def update():
+            if max_value is not None: self.progressbar.configure(maximum=max_value)
+            self.status_label.config(text=text); self.progressbar.configure(value=progress_value)
+        self.window.after(0, update)
+    def check_and_install_logic(self):
+        missing, total_reqs = [], len(self.portagerequirements)
+        for idx, requirement in enumerate(self.portagerequirements, 1):
+            self.update_ui_safely(f"Checking {requirement}... ({idx}/{total_reqs})", idx, total_reqs)
+            if not self.is_package_installed(requirement): missing.append(requirement)
+        if missing:
+            total_missing = len(missing)
+            for idx, package in enumerate(missing, 1):
+                self.update_ui_safely(f"Installing {package}...\n(This may take a while)", idx - 1, total_missing)
+                try: subprocess.run(["emerge", "--verbose", f"--jobs={self.portage_cores}", package], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                except subprocess.CalledProcessError as e: self.window.after(0, lambda: self.show_error_and_exit(f"Failed to install {package}.\nExit code: {e.returncode}")); return
+                self.update_ui_safely(f"Installed {package} successfully.", idx, total_missing)
+        self.update_ui_safely("Requirements met! Proceeding...", total_reqs if not missing else total_missing)
+        self.window.after(1500, self.choosing_language)
     def choosing_language(self):
         self.clean_window()
         tk.Label(self.window, text="Choose your language:").pack(pady=10)
         self.language_var = tk.StringVar(self.window, value=self.available_languages[0])
         tk.OptionMenu(self.window, self.language_var, *self.available_languages).pack(pady=5)
+        tk.Button(self.window, text="Continue", command=self.choosing_country).pack(pady=10)
+    def choosing_country(self):
+        self.selected_language = self.language_var.get()
+        self.clean_window()
+        tk.Label(self.window, text="Select your country:").pack(pady=10)
+        self.country_var = tk.StringVar(self.window, value=self.available_countries[0])
+        tk.OptionMenu(self.window, self.country_var, *self.available_countries).pack(pady=5)
+        tk.Button(self.window, text="Continue", command=self.choosing_hostname).pack(pady=10)
+    def choosing_hostname(self):
+        self.selected_country = self.country_var.get()
+        self.clean_window()
+        tk.Label(self.window, text="Enter Hostname (Computer Name):", font=("Helvetica", 11, "bold")).pack(pady=20)
+        self.hostname_entry = tk.Entry(self.window, justify="center")
+        self.hostname_entry.insert(0, "bit-os")
+        self.hostname_entry.pack(pady=10)
+        tk.Button(self.window, text="Continue", command=self.choosing_keymap).pack(pady=15)
+    def choosing_keymap(self):
+        self.selected_hostname = self.hostname_entry.get().strip().replace(" ", "-") or "bit-os"
+        self.clean_window()
+        tk.Label(self.window, text="Select Keyboard Layout (Keymap):").pack(pady=10)
+        self.keymap_var = tk.StringVar(self.window, value=self.available_keymaps[0])
+        tk.OptionMenu(self.window, self.keymap_var, *self.available_keymaps).pack(pady=5)
+        tk.Button(self.window, text="Continue", command=self.choosing_timezone).pack(pady=10)
+    def choosing_timezone(self):
+        self.selected_keymap = self.keymap_var.get()
+        self.clean_window()
+        tk.Label(self.window, text="Select System Timezone:").pack(pady=10)
+        self.timezone_var = tk.StringVar(self.window, value=self.available_timezones[0])
+        tk.OptionMenu(self.window, self.timezone_var, *self.available_timezones).pack(pady=5)
+        tk.Button(self.window, text="Continue", command=self.choosing_disk).pack(pady=10)
+    def choosing_disk(self):
+        self.selected_timezone = self.timezone_var.get()
+        self.clean_window()
+        tk.Label(self.window, text="Select the target disk for installation:").pack(pady=10)
+        disks = self.get_available_disks()
+        self.disk_var = tk.StringVar(self.window, value=disks[0])
+        tk.OptionMenu(self.window, self.disk_var, *disks).pack(pady=5)
+        tk.Label(self.window, text="WARNING: All data on this disk will be erased!", font=("Helvetica", 9, "bold"), fg="red").pack(pady=5)
         tk.Button(self.window, text="Continue", command=self.choosing_filesystem).pack(pady=10)
     def choosing_filesystem(self):
-        self.selected_language = self.language_var.get()
+        self.selected_disk = self.disk_var.get().split()[0]
         self.clean_window()
         tk.Label(self.window, text="Select the filesystem for the installation:").pack(pady=10)
         self.filesystem_var = tk.StringVar(self.window, value=self.available_filesystems[0])
@@ -44,48 +123,91 @@ class BitOSInstaller:
         if self.cpu_architecture != "x86_64":
             self.show_error_and_exit(f"This installer isn't made for {self.cpu_architecture} CPUs.")
             return
-        self.setup_progress_ui()
-    def setup_progress_ui(self):
+        self.asking_swapfile()
+    def asking_swapfile(self):
         self.clean_window()
-        self.status_label = tk.Label(self.window, text="Checking for required packages...", wraplength=350)
-        self.status_label.pack(pady=20)
-        self.progressbar = ttk.Progressbar(self.window, orient="horizontal", length=300, mode="determinate")
-        self.progressbar.pack(pady=5)
-        threading.Thread(target=self.check_and_install_logic, daemon=True).start()
-    def update_ui_safely(self, text, progress_value, max_value=None):
-        def update():
-            if max_value is not None: self.progressbar.configure(maximum=max_value)
-            self.status_label.config(text=text)
-            self.progressbar.configure(value=progress_value)
-        self.window.after(0, update)
-    def check_and_install_logic(self):
-        missing, total_reqs = [], len(self.portagerequirements)
-        for idx, requirement in enumerate(self.portagerequirements, 1):
-            self.update_ui_safely(f"Checking {requirement}... ({idx}/{total_reqs})", idx, total_reqs)
-            if not self.is_package_installed(requirement): missing.append(requirement)
-        if missing:
-            total_missing = len(missing)
-            for idx, package in enumerate(missing, 1):
-                self.update_ui_safely(f"Installing {package}...\n(This may take a while)", idx - 1, total_missing)
-                try:
-                    subprocess.run(["emerge", "--verbose", f"--jobs={self.portage_cores}", package], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-                except subprocess.CalledProcessError as e:
-                    self.window.after(0, lambda: self.show_error_and_exit(f"Failed to install {package}.\nExit code: {e.returncode}"))
-                    return
-                self.update_ui_safely(f"Installed {package} successfully.", idx, total_missing)
-        self.update_ui_safely("Requirements met! Proceeding...", total_reqs if not missing else total_missing)
-        self.window.after(1500, self.proceed_to_next_installer_stage)
+        tk.Label(self.window, text="Do you want to create a swapfile?", font=("Helvetica", 11, "bold")).pack(pady=20)
+        tk.Label(self.window, text="A swapfile allows the system to use disk space as virtual memory.", wrap=350).pack(pady=10)
+        self.swap_var = tk.BooleanVar(self.window, value=True)
+        tk.Checkbutton(self.window, text="Enable Swapfile", variable=self.swap_var).pack(pady=10)
+        tk.Button(self.window, text="Continue", command=self.process_swapfile_decision).pack(pady=15)
+    def process_swapfile_decision(self):
+        self.want_swapfile = self.swap_var.get()
+        self.choosing_swap_size() if self.want_swapfile else self.choosing_profile()
+    def choosing_swap_size(self):
+        self.clean_window()
+        tk.Label(self.window, text="Enter Swapfile Size:", font=("Helvetica", 11, "bold")).pack(pady=20)
+        tk.Label(self.window, text="Specify the size in Gigabytes (GB):", wrap=350).pack(pady=5)
+        self.size_entry = tk.Entry(self.window, justify="center")
+        self.size_entry.insert(0, "4")
+        self.size_entry.pack(pady=10)
+        tk.Button(self.window, text="Continue", command=self.save_swap_size).pack(pady=15)
+    def save_swap_size(self):
+        self.swapfile_size = self.size_entry.get().strip() or "4"
+        self.choosing_profile()
+    def choosing_profile(self):
+        self.clean_window()
+        tk.Label(self.window, text="Select PC Configuration Profile:", font=("Helvetica", 11, "bold")).pack(pady=20)
+        self.profile_var = tk.StringVar(self.window, value=self.available_profiles[4])
+        tk.OptionMenu(self.window, self.profile_var, *self.available_profiles).pack(pady=10)
+        tk.Button(self.window, text="Continue", command=self.save_profile).pack(pady=15)
+    def save_profile(self):
+        self.selected_profile = self.profile_var.get()
+        self.choosing_env()
+    def choosing_env(self):
+        self.clean_window()
+        tk.Label(self.window, text="Select Desktop Environment:", font=("Helvetica", 11, "bold")).pack(pady=20)
+        self.env_var = tk.StringVar(self.window, value=self.available_envs[0])
+        tk.OptionMenu(self.window, self.env_var, *self.available_envs).pack(pady=10)
+        tk.Button(self.window, text="Continue", command=self.save_env).pack(pady=15)
+    def save_env(self):
+        self.selected_env = self.env_var.get()
+        self.asking_root_password()
+    def asking_root_password(self):
+        self.clean_window()
+        tk.Label(self.window, text="Set Root Password:", font=("Helvetica", 11, "bold")).pack(pady=20)
+        tk.Label(self.window, text="Enter the desired password for the root user:", wrap=350).pack(pady=5)
+        self.pass_entry = tk.Entry(self.window, show="*", justify="center")
+        self.pass_entry.pack(pady=10)
+        tk.Button(self.window, text="Continue", command=self.save_root_password).pack(pady=15)
+    def save_root_password(self):
+        self.root_password = self.pass_entry.get()
+        self.asking_user_creation()
+    def asking_user_creation(self):
+        self.clean_window()
+        title = "Create a Standard User?" if not self.additional_users else "Create Another User?"
+        tk.Label(self.window, text=title, font=("Helvetica", 11, "bold")).pack(pady=15)
+        tk.Label(self.window, text="Would you like to add a standard user account to the system?", wrap=350).pack(pady=5)
+        self.user_checkbox_var = tk.BooleanVar(self.window, value=True)
+        tk.Checkbutton(self.window, text="Add User Account", variable=self.user_checkbox_var).pack(pady=10)
+        tk.Button(self.window, text="Continue", command=self.process_user_decision).pack(pady=10)
+    def process_user_decision(self):
+        self.setup_user_details() if self.user_checkbox_var.get() else self.proceed_to_next_installer_stage()
+    def setup_user_details(self):
+        self.clean_window()
+        tk.Label(self.window, text=f"User Setup (Account #{len(self.additional_users)+1}):", font=("Helvetica", 11, "bold")).pack(pady=5)
+        tk.Label(self.window, text="Username:").pack(); self.username_entry = tk.Entry(self.window, justify="center"); self.username_entry.pack(pady=2)
+        tk.Label(self.window, text="Password:").pack(); self.user_pass_entry = tk.Entry(self.window, show="*", justify="center"); self.user_pass_entry.pack(pady=2)
+        tk.Label(self.window, text="Select Group:").pack()
+        self.group_var = tk.StringVar(self.window, value=self.available_groups[0])
+        tk.OptionMenu(self.window, self.group_var, *self.available_groups).pack(pady=2)
+        self.c_users_var = tk.BooleanVar(self.window, value=False)
+        tk.Checkbutton(self.window, text="Create folder in C:\\Users\\", variable=self.c_users_var).pack(pady=5)
+        tk.Button(self.window, text="Save User", command=self.save_user_details).pack(pady=10)
+    def save_user_details(self):
+        uname = self.username_entry.get().strip()
+        if uname: self.additional_users.append({"name": uname, "pass": self.user_pass_entry.get(), "group": self.group_var.get(), "c_users": self.c_users_var.get()})
+        self.asking_user_creation()
     def proceed_to_next_installer_stage(self):
         self.clean_window()
-        summary = f"Language: {self.selected_language}\nFilesystem: {self.selected_filesystem}\n\nReady to partition and install Bit-OS!"
-        tk.Label(self.window, text=summary, fg="green", font=("Helvetica", 11), justify="center").pack(pady=30)
+        swap_info = f"Yes ({self.swapfile_size} GB)" if self.want_swapfile else "No"
+        user_list = ", ".join([f"{u['name']}" for u in self.additional_users]) or "None"
+        summary = f"Lang: {self.selected_language} | Country: {self.selected_country}\nHostname: {self.selected_hostname} | Keymap: {self.selected_keymap}\nTimezone: {self.selected_timezone}\nDisk: /dev/{self.selected_disk} ({self.selected_filesystem})\nSwap: {swap_info} | Profile: {self.selected_profile}\nEnv: {self.selected_env} | Root Pass: [SET]\nUsers ({len(self.additional_users)}): {user_list}\n\nReady to partition and install Bit-OS!"
+        tk.Label(self.window, text=summary, fg="green", font=("Helvetica", 10), justify="center").pack(pady=20)
         tk.Button(self.window, text="Begin Installation", command=self.window.destroy).pack()
     def show_error_and_exit(self, msg):
-        self.clean_window()
-        tk.Label(self.window, text="An Error Occurred", font=("Helvetica", 12, "bold"), fg="red").pack(pady=10)
+        self.clean_window(); tk.Label(self.window, text="An Error Occurred", font=("Helvetica", 12, "bold"), fg="red").pack(pady=10)
         tk.Label(self.window, text=msg, fg="black", justify="center", wraplength=350).pack(pady=10)
         tk.Button(self.window, text="Exit Installer", command=self.window.destroy).pack(pady=10)
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = BitOSInstaller(root)
-    root.mainloop()
+    root = tk.Tk(); app = BitOSInstaller(root); root.mainloop()
