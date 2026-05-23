@@ -12,4 +12,10 @@ cflags:
 cxxflags: 
 envscript: 
 livecd/use: 
-livecd/packages:x11-base/xorg-server x11-apps/xinit
+livecd/packages:
+    x11-base/xorg-server 
+    x11-apps/xinit
+    app-portage/cpuid2cpuflags
+    dev-vcs/git
+    net-misc/wget
+    net-firewall/nftables

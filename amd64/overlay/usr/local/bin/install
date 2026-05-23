@@ -1,88 +1,91 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-import os
-import math
-import locale
-import platform
-import subprocess
-import threading
-import tkinter as tk
+import os, math, platform, subprocess, threading, portage, tkinter as tk
 from tkinter import ttk
-import portage
-cpu_architecture = platform.machine()
-nproc = os.cpu_count() or 1
-available_languages = ["Portuguese", "English", "German"]
-portagerequirements = ["net-misc/wget", "dev-vcs/git"]
-portage_cores = math.ceil((nproc / 100) * 75)
-def cleanwindow(window_obj):
-    for widget in window_obj.winfo_children():
-        widget.destroy()
-def is_package_installed(cpv):
-    vartree = portage.db[portage.root]["vartree"]
-    return bool(vartree.dbapi.match(cpv))
-def run_requirements_check():
-    global LANGUAGE
-    LANGUAGE = language_var.get()
-    if cpu_architecture != "x86_64":
-        window.after(0, lambda: show_error_and_exit(f"This installer isn't made for {cpu_architecture} CPUs."))
-        return
-    window.after(0, setup_progress_ui)
-def setup_progress_ui():
-    cleanwindow(window)
-    global status_label, progressbar
-    status_label = tk.Label(window, text="Checking for required packages...")
-    status_label.pack(pady=10)
-    progressbar = ttk.Progressbar(window, orient="horizontal", length=300, mode="determinate", maximum=len(portagerequirements))
-    progressbar.pack(pady=5)
-    threading.Thread(target=check_and_install_logic, daemon=True).start()
-def check_and_install_logic():
-    missing = []
-    for idx, requirement in enumerate(portagerequirements, 1):
-        window.after(0, lambda i=idx, req=requirement: update_progress(f"Checking {req}... ({i}/{len(portagerequirements)})", i))
-        if not is_package_installed(requirement):
-            missing.append(requirement)
-    if missing:
-        window.after(0, lambda: progressbar.configure(maximum=len(missing), value=0))
-        for idx, package in enumerate(missing, 1):
-            window.after(0, lambda i=idx, pkg=package: update_progress(f"Installing {pkg}... ({i}/{len(missing)})", i-1)) 
-            try:
-                subprocess.run(["emerge", "--verbose", package], check=True)
-            except subprocess.CalledProcessError:
-                print(f"Failed to install {package}")
-            window.after(0, lambda i=idx: progressbar.configure(value=i))
-    window.after(0, lambda: update_progress("Requirements met! Proceeding...", len(portagerequirements)))
-def update_progress(text, value):
-    status_label.config(text=text)
-    progressbar.configure(value=value)
-def show_error_and_exit(msg):
-    cleanwindow(window)
-    label = tk.Label(window, text=msg)
-    label.pack(pady=20)
-    button = tk.Button(window, text="Exit", command=window.destroy)
-    button.pack()
-def choosinglanguage():
-    cleanwindow(window)
-    label = tk.Label(window, text="Choose your language:")
-    label.pack(pady=10)
-    global language_var
-    language_var = tk.StringVar(window)
-    language_var.set(available_languages[0])
-    dropdown = tk.OptionMenu(window, language_var, *available_languages)
-    dropdown.pack(pady=5)
-    button = tk.Button(window, text="Continue", command=run_requirements_check)
-    button.pack(pady=10)
-window = tk.Tk()
-window.title("Bit-OS Install Wizard")
-window.geometry("400x300")
-if os.getuid() != 0:
-    aviso = tk.Label(window, text="This program must be run as root!")
-    aviso.pack(pady=20)
-    botao = tk.Button(window, text="Exit", command=window.destroy)
-    botao.pack()
-else:
-    welcommingMessage = tk.Label(window, text="Welcome to Bit-OS Install Wizard!")
-    welcommingMessage.pack(pady=20)
-    botao = tk.Button(window, text="Continue", command=choosinglanguage)
-    botao.pack()
-window.mainloop()
+class BitOSInstaller:
+    def __init__(self, window):
+        self.window = window
+        self.window.title("Bit-OS Install Wizard")
+        self.window.geometry("400x350")
+        self.cpu_architecture, self.nproc = platform.machine(), os.cpu_count() or 1
+        self.portage_cores = max(1, math.ceil((self.nproc / 100) * 75))
+        self.available_languages = ["Portuguese", "English", "German"]
+        self.available_filesystems = ["btrfs"]
+        self.portagerequirements = ["net-misc/wget", "dev-vcs/git"]
+        self.selected_language, self.selected_filesystem, self.status_label, self.progressbar = None, None, None, None
+        self.check_root_and_start()
+    def clean_window(self):
+        for widget in self.window.winfo_children(): widget.destroy()
+    def is_package_installed(self, cp):
+        return bool(portage.db[portage.root]["vartree"].dbapi.cp_list(cp))
+    def check_root_and_start(self):
+        if os.getuid() != 0:
+            tk.Label(self.window, text="This program must be run as root!", fg="red").pack(pady=20)
+            tk.Button(self.window, text="Exit", command=self.window.destroy).pack()
+        else:
+            tk.Label(self.window, text="Welcome to Bit-OS Install Wizard!", font=("Helvetica", 12, "bold")).pack(pady=20)
+            tk.Button(self.window, text="Continue", command=self.choosing_language).pack()
+    def choosing_language(self):
+        self.clean_window()
+        tk.Label(self.window, text="Choose your language:").pack(pady=10)
+        self.language_var = tk.StringVar(self.window, value=self.available_languages[0])
+        tk.OptionMenu(self.window, self.language_var, *self.available_languages).pack(pady=5)
+        tk.Button(self.window, text="Continue", command=self.choosing_filesystem).pack(pady=10)
+    def choosing_filesystem(self):
+        self.selected_language = self.language_var.get()
+        self.clean_window()
+        tk.Label(self.window, text="Select the filesystem for the installation:").pack(pady=10)
+        self.filesystem_var = tk.StringVar(self.window, value=self.available_filesystems[0])
+        tk.OptionMenu(self.window, self.filesystem_var, *self.available_filesystems).pack(pady=5)
+        tk.Label(self.window, text="(btrfs is required for this installation)", font=("Helvetica", 9, "italic"), fg="gray").pack(pady=5)
+        tk.Button(self.window, text="Continue", command=self.validate_environment).pack(pady=10)
+    def validate_environment(self):
+        self.selected_filesystem = self.filesystem_var.get()
+        if self.cpu_architecture != "x86_64":
+            self.show_error_and_exit(f"This installer isn't made for {self.cpu_architecture} CPUs.")
+            return
+        self.setup_progress_ui()
+    def setup_progress_ui(self):
+        self.clean_window()
+        self.status_label = tk.Label(self.window, text="Checking for required packages...", wraplength=350)
+        self.status_label.pack(pady=20)
+        self.progressbar = ttk.Progressbar(self.window, orient="horizontal", length=300, mode="determinate")
+        self.progressbar.pack(pady=5)
+        threading.Thread(target=self.check_and_install_logic, daemon=True).start()
+    def update_ui_safely(self, text, progress_value, max_value=None):
+        def update():
+            if max_value is not None: self.progressbar.configure(maximum=max_value)
+            self.status_label.config(text=text)
+            self.progressbar.configure(value=progress_value)
+        self.window.after(0, update)
+    def check_and_install_logic(self):
+        missing, total_reqs = [], len(self.portagerequirements)
+        for idx, requirement in enumerate(self.portagerequirements, 1):
+            self.update_ui_safely(f"Checking {requirement}... ({idx}/{total_reqs})", idx, total_reqs)
+            if not self.is_package_installed(requirement): missing.append(requirement)
+        if missing:
+            total_missing = len(missing)
+            for idx, package in enumerate(missing, 1):
+                self.update_ui_safely(f"Installing {package}...\n(This may take a while)", idx - 1, total_missing)
+                try:
+                    subprocess.run(["emerge", "--verbose", f"--jobs={self.portage_cores}", package], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                except subprocess.CalledProcessError as e:
+                    self.window.after(0, lambda: self.show_error_and_exit(f"Failed to install {package}.\nExit code: {e.returncode}"))
+                    return
+                self.update_ui_safely(f"Installed {package} successfully.", idx, total_missing)
+        self.update_ui_safely("Requirements met! Proceeding...", total_reqs if not missing else total_missing)
+        self.window.after(1500, self.proceed_to_next_installer_stage)
+    def proceed_to_next_installer_stage(self):
+        self.clean_window()
+        summary = f"Language: {self.selected_language}\nFilesystem: {self.selected_filesystem}\n\nReady to partition and install Bit-OS!"
+        tk.Label(self.window, text=summary, fg="green", font=("Helvetica", 11), justify="center").pack(pady=30)
+        tk.Button(self.window, text="Begin Installation", command=self.window.destroy).pack()
+    def show_error_and_exit(self, msg):
+        self.clean_window()
+        tk.Label(self.window, text="An Error Occurred", font=("Helvetica", 12, "bold"), fg="red").pack(pady=10)
+        tk.Label(self.window, text=msg, fg="black", justify="center", wraplength=350).pack(pady=10)
+        tk.Button(self.window, text="Exit Installer", command=self.window.destroy).pack(pady=10)
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = BitOSInstaller(root)
+    root.mainloop()
