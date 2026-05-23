@@ -34,6 +34,8 @@ class BitOSInstaller:
         try:
             return psutil.disk_usage('/').free / (1024 ** 3)
         except Exception: return 0.0
+    def is_uefi_mode(self):
+        return os.path.isdir("/sys/firmware/efi")
     def check_internet_connection(self):
         try:
             socket.gethostbyname("google.com")
@@ -53,6 +55,14 @@ class BitOSInstaller:
         if os.getuid() != 0:
             tk.Label(self.window, text="This program must be run as root!", fg="red").pack(pady=20)
             tk.Button(self.window, text="Exit", command=self.window.destroy).pack()
+        elif not self.is_uefi_mode():
+            tk.Label(self.window, text="UEFI Mode Required!", font=("Helvetica", 14, "bold"), fg="red").pack(pady=20)
+            tk.Label(self.window, text="Bit-OS requires the system to be booted in UEFI mode.\nLegacy BIOS is not supported by this installer.", justify="center", wraplength=350).pack(pady=10)
+            tk.Button(self.window, text="Exit", command=self.window.destroy).pack(pady=20)
+        elif self.nproc < 2:
+            tk.Label(self.window, text="Insufficient CPU Cores!", font=("Helvetica", 14, "bold"), fg="red").pack(pady=20)
+            tk.Label(self.window, text="At least 2 logical CPU cores are required to install Bit-OS.", justify="center", wraplength=350).pack(pady=10)
+            tk.Button(self.window, text="Exit", command=self.window.destroy).pack(pady=20)
         elif self.get_total_ram_gb() <= 2.0:
             tk.Label(self.window, text="Installation Impossible!", font=("Helvetica", 14, "bold"), fg="red").pack(pady=20)
             tk.Label(self.window, text="This device does not meet the minimum requirements.\nAt least more than 2 GB of RAM is required to install Bit-OS.", justify="center", wraplength=350).pack(pady=10)
