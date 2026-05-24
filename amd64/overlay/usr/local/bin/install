@@ -1,7 +1,152 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import os, math, platform, subprocess, threading, portage, psutil, socket, tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
+
+class GerenciadorParticoes:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Instalação do Windows (Modo Gentoo)")
+        self.root.geometry("650x450")
+        self.root.configure(bg="#f0f0f0")
+
+        # Título
+        lbl_titulo = tk.Label(root, text="Onde deseja instalar o sistema?", font=("Arial", 14, "bold"), bg="#f0f0f0", fg="#003366")
+        lbl_titulo.pack(pady=10)
+
+        # Frame da Tabela
+        frame_tabela = tk.Frame(root)
+        frame_tabela.pack(pady=10, padx=20, fill=tk.BOTH, expand=True)
+
+        # Treeview (Tabela) para listar discos e partições
+        self.tree = ttk.Treeview(frame_tabela, columns=("Nome", "Tamanho", "Ponto de Montagem"), show="headings")
+        self.tree.heading("Nome", text="Dispositivo/Partição")
+        self.tree.heading("Tamanho", text="Tamanho")
+        self.tree.heading("Ponto de Montagem", text="Montagem")
+        
+        self.tree.column("Nome", width=200)
+        self.tree.column("Tamanho", width=100)
+        self.tree.column("Ponto de Montagem", width=120)
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(frame_tabela, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscroll=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Frame de Botões (Estilo Instalador do Windows)
+        frame_botoes = tk.Frame(root, bg="#f0f0f0")
+        frame_botoes.pack(pady=15)
+
+        btn_atualizar = tk.Button(frame_botoes, text="🔄 Atualizar", command=self.atualizar_discos, width=12)
+        btn_atualizar.grid(row=0, column=0, padx=5)
+
+        btn_novo = tk.Button(frame_botoes, text="➕ Novo", command=self.criar_particao, width=12)
+        btn_novo.grid(row=0, column=1, padx=5)
+
+        btn_excluir = tk.Button(frame_botoes, text="❌ Excluir", command=self.excluir_particao, width=12, fg="red")
+        btn_excluir.grid(row=0, column=2, padx=5)
+
+        # Entrada de tamanho para nova partição
+        tk.Label(root, text="Tamanho para 'Novo' (ex: 50GiB, 2048MiB):", bg="#f0f0f0").pack()
+        self.entry_tamanho = tk.Entry(root, width=20)
+        self.entry_tamanho.pack(pady=5)
+        self.entry_tamanho.insert(0, "10GiB")
+
+        # Inicializa a tabela
+        self.atualizar_discos()
+
+    def obter_dados_lsblk(self):
+        """Usa o lsblk para capturar os discos e partições reais do Gentoo"""
+        try:
+            resultado = subprocess.check_output(
+                ["lsblk", "-b", "-o", "NAME,TYPE,SIZE,MOUNTPOINT", "-n", "-P"], 
+                text=True
+            )
+            return resultado
+        except Exception as e:
+            messagebox.showerror("Erro", f"Não foi possível ler os discos: {e}")
+            return ""
+
+    def atualizar_discos(self):
+        """Limpa a tabela e lê os dados do sistema novamente"""
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        saida = self.obter_dados_lsblk()
+        for linha in saida.strip().split('\n'):
+            if not linha:
+                continue
+            
+            dados = {}
+            for parte in linha.split('" '):
+                if '=' in parte:
+                    chave, valor = parte.replace('"', '').split('=', 1)
+                    dados[chave] = valor
+
+            nome = dados.get("NAME", "")
+            tipo = dados.get("TYPE", "")
+            bytes_tamanho = int(dados.get("SIZE", 0))
+            montagem = dados.get("MOUNTPOINT", "")
+
+            tamanho_gb = f"{bytes_tamanho / (1024**3):.2f} GB"
+            exibicao_nome = f"  └── /dev/{nome}" if tipo == "part" else f"/dev/{nome}"
+            self.tree.insert("", tk.END, values=(exibicao_nome, tamanho_gb, montagem), tags=(nome,))
+
+    def obter_selecao(self):
+        """Retorna o nome do dispositivo selecionado na tabela"""
+        item_selecionado = self.tree.selection()
+        if not item_selecionado:
+            messagebox.showwarning("Aviso", "Selecione um disco ou partição na lista.")
+            return None
+        tags = self.tree.item(item_selecionado, "tags")
+        return tags[0] if tags else None
+
+    def criar_particao(self):
+        target = self.get_target_disk_or_part(is_delete=False)
+        if not target:
+            return
+
+        tamanho = self.entry_tamanho.get().strip()
+        
+        if messagebox.askyesno("Confirmar", f"Deseja criar uma nova partição de {tamanho} em {target}?"):
+            try:
+                subprocess.run(["parted", "-s", target, "mkpart", "primary", "ext4", "1MiB", tamanho], check=True)
+                messagebox.showinfo("Sucesso", "Partição criada com sucesso!")
+                self.atualizar_discos()
+            except Exception as e:
+                messagebox.showerror("Erro", f"Falha ao criar partição: {e}")
+
+    def excluir_particao(self):
+        target = self.get_target_disk_or_part(is_delete=True)
+        if not target:
+            return
+
+        if messagebox.askyesno("PERIGO", f"Tem certeza que deseja EXCLUIR a partição {target}?\nTodos os dados serão perdidos!"):
+            import re
+            match = re.match(r"(/dev/sd[a-z]|/dev/nvme\dn\d)p?(\d+)", target)
+            if match:
+                disco_pai = match.group(1)
+                num_particao = match.group(2)
+                try:
+                    subprocess.run(["parted", "-s", disco_pai, "rm", num_particao], check=True)
+                    messagebox.showinfo("Sucesso", "Partição excluída!")
+                    self.atualizar_discos()
+                except Exception as e:
+                    messagebox.showerror("Erro", f"Falha ao excluir: {e}")
+            else:
+                messagebox.showerror("Erro", "Não foi possível determinar o número da partição.")
+
+    def get_target_disk_or_part(self, is_delete=False):
+        nome_curto = self.obter_selecao()
+        if not nome_curto:
+            return None
+
+        caminho_completo = f"/dev/{nome_curto}"
+        if is_delete and nome_curto in ["sda", "nvme0n1"]:
+            messagebox.showerror("Bloqueado", "Você não pode excluir o disco inteiro por aqui, selecione uma partição específica.")
+            return None
+        return caminho_completo
+
 class BitOSInstaller:
     def __init__(self, window):
         self.window = window
@@ -72,7 +217,7 @@ class BitOSInstaller:
             socket.gethostbyname("google.com")
             return True
         except socket.gaierror: return False
-    # Disk/partition selection removed — installer uses filesystem-only flow
+    # Partition selection is available as an installer step via test.py
     def check_root_and_start(self):
         if os.getuid() != 0:
             tk.Label(self.window, text="This program must be run as root!", fg="red").pack(pady=20)
@@ -164,7 +309,38 @@ class BitOSInstaller:
         self.filesystem_var = tk.StringVar(self.window, value=self.selected_filesystem or self.available_filesystems[0])
         tk.OptionMenu(self.window, self.filesystem_var, *self.available_filesystems).pack(pady=5)
         tk.Label(self.window, text="(btrfs is required for this installation)", font=("Helvetica", 9, "italic"), fg="gray").pack(pady=5)
-        self.add_navigation_buttons(continue_command=lambda: self.show_page(self.validate_environment))
+        self.add_navigation_buttons(continue_command=self.goto_partition_selection)
+
+    def goto_partition_selection(self):
+        self.selected_filesystem = self.filesystem_var.get()
+        self.show_page(self.partition_selection)
+
+    def partition_selection(self):
+        self.clean_window()
+        tk.Label(self.window, text="Partition Selection", font=("Helvetica", 12, "bold")).pack(pady=20)
+        tk.Label(
+            self.window,
+            text="Use the partition manager window to prepare disks and partitions.\nClick the button below to open it, then continue when finished.",
+            wraplength=360,
+            justify="center"
+        ).pack(pady=10)
+        tk.Button(self.window, text="Open Partition Manager", width=22, command=self.open_partition_manager).pack(pady=10)
+        self.add_navigation_buttons(continue_command=lambda: self.show_page(self.validate_environment), continue_label="Continue")
+
+    def open_partition_manager(self):
+        if GerenciadorParticoes is None:
+            self.show_error_and_exit("Partition manager is not available.")
+            return
+        if hasattr(self, "partition_window") and getattr(self, "partition_window").winfo_exists():
+            self.partition_window.lift()
+            return
+        self.partition_window = tk.Toplevel(self.window)
+        self.partition_window.title("Partition Manager")
+        self.partition_window.geometry("700x450")
+        self.partition_window.transient(self.window)
+        self.partition_window.grab_set()
+        self.partition_manager = GerenciadorParticoes(self.partition_window)
+
     def validate_environment(self):
         self.selected_filesystem = self.filesystem_var.get()
         if self.cpu_architecture != "x86_64":
