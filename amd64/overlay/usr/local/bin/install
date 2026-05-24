@@ -18,14 +18,45 @@ class BitOSInstaller:
         self.available_groups = ["wheel", "users", "audio", "video"]
         self.portagerequirements = ["net-misc/wget", "dev-vcs/git", "app-portage/cpuid2cpuflags", "net-firewall/nftables", "app-antivirus/clamav"]
         self.selected_language, self.selected_country, self.selected_hostname = None, None, None
-        self.selected_keymap, self.selected_timezone, self.selected_disk, self.selected_filesystem = None, None, None, None
-        self.partition_mode, self.sub_partition_mode, self.keep_gentoo_data = None, None, False
+        self.selected_keymap, self.selected_timezone, self.selected_filesystem = None, None, None
         self.want_swapfile, self.swapfile_size, self.selected_profile, self.selected_env, self.root_password = None, "0", None, None, None
         self.additional_users = []
         self.status_label, self.progressbar = None, None
+        self.current_page = None
+        self.history = []
+        self.future = []
         self.check_root_and_start()
     def clean_window(self):
         for widget in self.window.winfo_children(): widget.destroy()
+    def show_page(self, page_func):
+        if self.current_page is not None:
+            self.history.append(self.current_page)
+            self.future.clear()
+        self.current_page = page_func
+        page_func()
+    def go_back(self):
+        if not self.history:
+            return
+        self.future.append(self.current_page)
+        previous_page = self.history.pop()
+        self.current_page = previous_page
+        previous_page()
+    def go_forward(self):
+        if not self.future:
+            return
+        self.history.append(self.current_page)
+        next_page = self.future.pop()
+        self.current_page = next_page
+        next_page()
+    def add_navigation_buttons(self, continue_command=None, continue_label="Continue"):
+        nav_frame = tk.Frame(self.window)
+        nav_frame.pack(pady=15)
+        if self.history:
+            tk.Button(nav_frame, text="Back", width=10, command=self.go_back).pack(side="left", padx=5)
+        if continue_command is not None:
+            tk.Button(nav_frame, text=continue_label, width=10, command=continue_command).pack(side="left", padx=5)
+        if self.future:
+            tk.Button(nav_frame, text="Forward", width=10, command=self.go_forward).pack(side="left", padx=5)
     def is_package_installed(self, cp):
         return bool(portage.db[portage.root]["vartree"].dbapi.cp_list(cp))
     def get_total_ram_gb(self):
@@ -41,16 +72,7 @@ class BitOSInstaller:
             socket.gethostbyname("google.com")
             return True
         except socket.gaierror: return False
-    def get_available_disks(self):
-        try:
-            output = subprocess.check_output(["lsblk", "-dno", "NAME,SIZE"], text=True)
-            return [line.strip() for line in output.splitlines() if line.strip()]
-        except Exception: return ["sda (Unknown Size)"]
-    def get_available_partitions(self):
-        try:
-            output = subprocess.check_output(["lsblk", "-lno", "NAME,SIZE,TYPE"], text=True)
-            return [line.strip().split()[0] + " (" + line.strip().split()[1] + ")" for line in output.splitlines() if "part" in line]
-        except Exception: return ["sda1 (Unknown Size)"]
+    # Disk/partition selection removed — installer uses filesystem-only flow
     def check_root_and_start(self):
         if os.getuid() != 0:
             tk.Label(self.window, text="This program must be run as root!", fg="red").pack(pady=20)
@@ -99,148 +121,105 @@ class BitOSInstaller:
             self.window.after(0, lambda: self.show_error_and_exit(f"The following required packages are missing:\n\n" + "\n".join(missing) + "\n\nPlease install them manually using emerge before running the installer."))
             return
         self.update_ui_safely("Requirements met! Proceeding...", total_reqs)
-        self.window.after(1500, self.choosing_language)
+        self.window.after(1500, lambda: self.show_page(self.choosing_language))
     def choosing_language(self):
         self.clean_window()
         tk.Label(self.window, text="Choose your language:").pack(pady=10)
-        self.language_var = tk.StringVar(self.window, value=self.available_languages[0])
+        self.language_var = tk.StringVar(self.window, value=self.selected_language or self.available_languages[0])
         tk.OptionMenu(self.window, self.language_var, *self.available_languages).pack(pady=5)
-        tk.Button(self.window, text="Continue", command=self.choosing_country).pack(pady=10)
+        self.add_navigation_buttons(continue_command=lambda: self.show_page(self.choosing_country))
     def choosing_country(self):
         self.selected_language = self.language_var.get()
         self.clean_window()
         tk.Label(self.window, text="Select your country:").pack(pady=10)
-        self.country_var = tk.StringVar(self.window, value=self.available_countries[0])
+        self.country_var = tk.StringVar(self.window, value=self.selected_country or self.available_countries[0])
         tk.OptionMenu(self.window, self.country_var, *self.available_countries).pack(pady=5)
-        tk.Button(self.window, text="Continue", command=self.choosing_hostname).pack(pady=10)
+        self.add_navigation_buttons(continue_command=lambda: self.show_page(self.choosing_hostname))
     def choosing_hostname(self):
         self.selected_country = self.country_var.get()
         self.clean_window()
         tk.Label(self.window, text="Enter Hostname (Computer Name):", font=("Helvetica", 11, "bold")).pack(pady=20)
         self.hostname_entry = tk.Entry(self.window, justify="center")
-        self.hostname_entry.insert(0, "bit-os")
+        self.hostname_entry.insert(0, self.selected_hostname or "bit-os")
         self.hostname_entry.pack(pady=10)
-        tk.Button(self.window, text="Continue", command=self.choosing_keymap).pack(pady=15)
+        self.add_navigation_buttons(continue_command=lambda: self.show_page(self.choosing_keymap))
     def choosing_keymap(self):
         self.selected_hostname = self.hostname_entry.get().strip().replace(" ", "-") or "bit-os"
         self.clean_window()
         tk.Label(self.window, text="Select Keyboard Layout (Keymap):").pack(pady=10)
-        self.keymap_var = tk.StringVar(self.window, value=self.available_keymaps[0])
+        self.keymap_var = tk.StringVar(self.window, value=self.selected_keymap or self.available_keymaps[0])
         tk.OptionMenu(self.window, self.keymap_var, *self.available_keymaps).pack(pady=5)
-        tk.Button(self.window, text="Continue", command=self.choosing_timezone).pack(pady=10)
+        self.add_navigation_buttons(continue_command=lambda: self.show_page(self.choosing_timezone))
     def choosing_timezone(self):
         self.selected_keymap = self.keymap_var.get()
         self.clean_window()
         tk.Label(self.window, text="Select System Timezone:").pack(pady=10)
-        self.timezone_var = tk.StringVar(self.window, value=self.available_timezones[0])
+        self.timezone_var = tk.StringVar(self.window, value=self.selected_timezone or self.available_timezones[0])
         tk.OptionMenu(self.window, self.timezone_var, *self.available_timezones).pack(pady=5)
-        tk.Button(self.window, text="Continue", command=self.asking_partition_type).pack(pady=10)
-    def asking_partition_type(self):
-        self.selected_timezone = self.timezone_var.get()
-        self.clean_window()
-        tk.Label(self.window, text="Partition Configuration Mode:", font=("Helvetica", 11, "bold")).pack(pady=20)
-        tk.Button(self.window, text="Install on a NEW partition", width=30, command=lambda: self.handle_partition_choice("new")).pack(pady=10)
-        tk.Button(self.window, text="Install on an EXISTING partition", width=30, command=lambda: self.handle_partition_choice("existing")).pack(pady=10)
-    def handle_partition_choice(self, choice):
-        self.partition_mode = choice
-        self.choosing_disk() if choice == "new" else self.asking_existing_gentoo()
-    def choosing_disk(self):
-        self.clean_window()
-        tk.Label(self.window, text="Select the target disk for the new partition:").pack(pady=10)
-        disks = self.get_available_disks()
-        self.disk_var = tk.StringVar(self.window, value=disks[0])
-        tk.OptionMenu(self.window, self.disk_var, *disks).pack(pady=5)
-        tk.Button(self.window, text="Continue", command=self.asking_sub_partition_new).pack(pady=10)
-    def asking_sub_partition_new(self):
-        self.selected_disk = self.disk_var.get().split()[0]
-        self.clean_window()
-        tk.Label(self.window, text=f"Options for disk /dev/{self.selected_disk}:", font=("Helvetica", 11, "bold")).pack(pady=20)
-        tk.Button(self.window, text="Use an existing partition on this disk", width=35, command=lambda: self.save_sub_partition_choice("existing")).pack(pady=10)
-        tk.Button(self.window, text="Create a brand new partition structure", width=35, command=lambda: self.save_sub_partition_choice("clean_new")).pack(pady=10)
-    def save_sub_partition_choice(self, choice):
-        self.sub_partition_mode = choice
-        self.choosing_filesystem()
-    def asking_existing_gentoo(self):
-        self.clean_window()
-        tk.Label(self.window, text="Existing Partition Setup:", font=("Helvetica", 11, "bold")).pack(pady=15)
-        tk.Label(self.window, text="Is this an existing Gentoo Linux partition and do you\nwish to keep the old Gentoo data for Bit-OS?", justify="center").pack(pady=10)
-        tk.Button(self.window, text="Yes, migrate old Gentoo data", width=30, command=lambda: self.save_gentoo_choice(True)).pack(pady=5)
-        tk.Button(self.window, text="No, just overwrite/format partition", width=30, command=lambda: self.save_gentoo_choice(False)).pack(pady=5)
-    def save_gentoo_choice(self, keep_data):
-        self.keep_gentoo_data = keep_data
-        self.choosing_target_partition()
-    def choosing_target_partition(self):
-        self.clean_window()
-        tk.Label(self.window, text="Select the target partition:").pack(pady=10)
-        partitions = self.get_available_partitions()
-        self.part_var = tk.StringVar(self.window, value=partitions[0])
-        tk.OptionMenu(self.window, self.part_var, *partitions).pack(pady=5)
-        tk.Button(self.window, text="Continue", command=self.save_target_partition).pack(pady=10)
-    def save_target_partition(self):
-        self.selected_disk = self.part_var.get().split()[0]
-        self.choosing_filesystem()
+        self.add_navigation_buttons(continue_command=lambda: self.show_page(self.choosing_filesystem))
+    # Partition selection screens removed. Flow proceeds directly to filesystem selection.
     def choosing_filesystem(self):
         self.clean_window()
         tk.Label(self.window, text="Select the filesystem for the installation:").pack(pady=10)
-        self.filesystem_var = tk.StringVar(self.window, value=self.available_filesystems[0])
+        self.filesystem_var = tk.StringVar(self.window, value=self.selected_filesystem or self.available_filesystems[0])
         tk.OptionMenu(self.window, self.filesystem_var, *self.available_filesystems).pack(pady=5)
         tk.Label(self.window, text="(btrfs is required for this installation)", font=("Helvetica", 9, "italic"), fg="gray").pack(pady=5)
-        tk.Button(self.window, text="Continue", command=self.validate_environment).pack(pady=10)
+        self.add_navigation_buttons(continue_command=lambda: self.show_page(self.validate_environment))
     def validate_environment(self):
         self.selected_filesystem = self.filesystem_var.get()
         if self.cpu_architecture != "x86_64":
             self.show_error_and_exit(f"This installer isn't made for {self.cpu_architecture} CPUs.")
             return
-        self.asking_swapfile()
+        self.show_page(self.asking_swapfile)
     def asking_swapfile(self):
         self.clean_window()
         tk.Label(self.window, text="Do you want to create a swapfile?", font=("Helvetica", 11, "bold")).pack(pady=20)
         tk.Label(self.window, text="A swapfile allows the system to use disk space as virtual memory.", wrap=350).pack(pady=10)
-        self.swap_var = tk.BooleanVar(self.window, value=True)
+        self.swap_var = tk.BooleanVar(self.window, value=self.want_swapfile if self.want_swapfile is not None else True)
         tk.Checkbutton(self.window, text="Enable Swapfile", variable=self.swap_var).pack(pady=10)
-        tk.Button(self.window, text="Continue", command=self.process_swapfile_decision).pack(pady=15)
+        self.add_navigation_buttons(continue_command=self.process_swapfile_decision)
     def process_swapfile_decision(self):
         self.want_swapfile = self.swap_var.get()
-        self.choosing_swap_size() if self.want_swapfile else self.choosing_profile()
+        self.show_page(self.choosing_swap_size if self.want_swapfile else self.choosing_profile)
     def choosing_swap_size(self):
         self.clean_window()
         tk.Label(self.window, text="Enter Swapfile Size:", font=("Helvetica", 11, "bold")).pack(pady=20)
         tk.Label(self.window, text="Specify the size in Gigabytes (GB):", wrap=350).pack(pady=5)
         self.size_entry = tk.Entry(self.window, justify="center")
-        self.size_entry.insert(0, "4")
+        self.size_entry.insert(0, self.swapfile_size or "4")
         self.size_entry.pack(pady=10)
-        tk.Button(self.window, text="Continue", command=self.save_swap_size).pack(pady=15)
+        self.add_navigation_buttons(continue_command=self.save_swap_size)
     def save_swap_size(self):
         self.swapfile_size = self.size_entry.get().strip() or "4"
-        self.choosing_profile()
+        self.show_page(self.choosing_profile)
     def choosing_profile(self):
         self.clean_window()
         tk.Label(self.window, text="Select PC Configuration Profile:", font=("Helvetica", 11, "bold")).pack(pady=20)
-        self.profile_var = tk.StringVar(self.window, value=self.available_profiles[4])
+        self.profile_var = tk.StringVar(self.window, value=self.selected_profile or self.available_profiles[4])
         tk.OptionMenu(self.window, self.profile_var, *self.available_profiles).pack(pady=10)
-        tk.Button(self.window, text="Continue", command=self.save_profile).pack(pady=15)
+        self.add_navigation_buttons(continue_command=self.save_profile)
     def save_profile(self):
         self.selected_profile = self.profile_var.get()
-        self.choosing_env()
+        self.show_page(self.choosing_env)
     def choosing_env(self):
         self.clean_window()
         tk.Label(self.window, text="Select Desktop Environment:", font=("Helvetica", 11, "bold")).pack(pady=20)
-        self.env_var = tk.StringVar(self.window, value=self.available_envs[0])
+        self.env_var = tk.StringVar(self.window, value=self.selected_env or self.available_envs[0])
         tk.OptionMenu(self.window, self.env_var, *self.available_envs).pack(pady=10)
-        tk.Button(self.window, text="Continue", command=self.save_env).pack(pady=15)
+        self.add_navigation_buttons(continue_command=self.save_env)
     def save_env(self):
         self.selected_env = self.env_var.get()
-        self.asking_root_password()
+        self.show_page(self.asking_root_password)
     def asking_root_password(self):
         self.clean_window()
         tk.Label(self.window, text="Set Root Password:", font=("Helvetica", 11, "bold")).pack(pady=20)
         tk.Label(self.window, text="Enter the desired password for the root user:", wrap=350).pack(pady=5)
         self.pass_entry = tk.Entry(self.window, show="*", justify="center")
         self.pass_entry.pack(pady=10)
-        tk.Button(self.window, text="Continue", command=self.save_root_password).pack(pady=15)
+        self.add_navigation_buttons(continue_command=self.save_root_password)
     def save_root_password(self):
         self.root_password = self.pass_entry.get()
-        self.asking_user_creation()
+        self.show_page(self.asking_user_creation)
     def asking_user_creation(self):
         self.clean_window()
         title = "Create a Standard User?" if not self.additional_users else "Create Another User?"
@@ -248,7 +227,7 @@ class BitOSInstaller:
         tk.Label(self.window, text="Would you like to add a standard user account to the system?", wrap=350).pack(pady=5)
         self.user_checkbox_var = tk.BooleanVar(self.window, value=True)
         tk.Checkbutton(self.window, text="Add User Account", variable=self.user_checkbox_var).pack(pady=10)
-        tk.Button(self.window, text="Continue", command=self.process_user_decision).pack(pady=10)
+        self.add_navigation_buttons(continue_command=self.process_user_decision)
     def process_user_decision(self):
         self.setup_user_details() if self.user_checkbox_var.get() else self.proceed_to_next_installer_stage()
     def setup_user_details(self):
@@ -262,6 +241,7 @@ class BitOSInstaller:
         self.c_users_var = tk.BooleanVar(self.window, value=False)
         tk.Checkbutton(self.window, text="Create folder in C:\\Users\\", variable=self.c_users_var).pack(pady=5)
         tk.Button(self.window, text="Save User", command=self.save_user_details).pack(pady=10)
+        self.add_navigation_buttons()
     def save_user_details(self):
         uname = self.username_entry.get().strip()
         if uname: self.additional_users.append({"name": uname, "pass": self.user_pass_entry.get(), "group": self.group_var.get(), "c_users": self.c_users_var.get()})
@@ -270,8 +250,8 @@ class BitOSInstaller:
         self.clean_window()
         swap_info = f"Yes ({self.swapfile_size} GB)" if self.want_swapfile else "No"
         user_list = ", ".join([f"{u['name']}" for u in self.additional_users]) or "None"
-        part_info = f"New Partition Mode ({self.sub_partition_mode}) on /dev/{self.selected_disk}" if self.partition_mode == "new" else f"Existing Partition /dev/{self.selected_disk} (Keep Gentoo Data: {self.keep_gentoo_data})"
-        summary = f"Lang: {self.selected_language} | Country: {self.selected_country}\nHostname: {self.selected_hostname} | Keymap: {self.selected_keymap}\nTimezone: {self.selected_timezone}\nTarget: {part_info} ({self.selected_filesystem})\nSwap: {swap_info} | Profile: {self.selected_profile}\nEnv: {self.selected_env} | Root Pass: [SET]\nUsers ({len(self.additional_users)}): {user_list}\n\nReady to partition and install Bit-OS!"
+        part_info = f"Filesystem: {self.selected_filesystem or 'btrfs'}"
+        summary = f"Lang: {self.selected_language} | Country: {self.selected_country}\nHostname: {self.selected_hostname} | Keymap: {self.selected_keymap}\nTimezone: {self.selected_timezone}\n{part_info}\nSwap: {swap_info} | Profile: {self.selected_profile}\nEnv: {self.selected_env} | Root Pass: [SET]\nUsers ({len(self.additional_users)}): {user_list}\n\nReady to install Bit-OS!"
         tk.Label(self.window, text=summary, fg="green", font=("Helvetica", 10), justify="center").pack(pady=20)
         tk.Button(self.window, text="Begin Installation", command=self.window.destroy).pack()
     def show_error_and_exit(self, msg):
